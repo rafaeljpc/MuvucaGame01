@@ -5,112 +5,56 @@ using System;
 public class HeroControl : MonoBehaviour {
 
 	private static float MOVE_THRESHOLD = 0.19f;
-
 	private Hero hero;
-
-	// Input States
-	private float _moveButtonSpeed = 0.0f;
-	private bool _jumpButtonPressed = false;
-	private bool _crouchButtonPressed = false;
-	private bool _carryButtonPressed = false;
-	private bool _actionButtonPressed = false;
-	private bool _changeHeroButtonPressed = false;
-
 
 	void Awake () {
 		hero = GetComponent<Hero> ();
 	}
 
-	private void detectButtonStates(){
-		//Analog Input:
-		// Walk
-		_moveButtonSpeed = Input.GetAxis("Horizontal");
-
-		//-------------------------------------------
-
-		//Boolean Buttons, or teo state buttons:
-		// Crouch
-		if (Input.GetButton("Crouch"))
-			_crouchButtonPressed= true;
-		else
-			_crouchButtonPressed = false;
-		
-		// Push
-		if (Input.GetButton("Carry"))
-			_carryButtonPressed= true;
-		else
-			_carryButtonPressed = false;
-
-		//----------------------------------------
-
-		//Trigger Buttons, one time activation: (they are deactivated on Fixed Update)
-
-		// Change Hero
-		if (Input.GetButtonDown("ChangeHero"))
-			_changeHeroButtonPressed = true;
-
-		// Jump
-		if (Input.GetButtonDown("Jump"))
-			_jumpButtonPressed= true;
-
-		// Action
-		if (Input.GetButtonDown("Action"))
-			_actionButtonPressed= true;
-	}
-
-	void Update() {
-		detectButtonStates();
-	}
-
-	void FixedUpdate () {
-
+    // Its called once per frame
+    public void ProcessHeroInput(game_input GameInput)
+    {
 		if (!hero.IsActive) {
-			hero.StopWalk();
-			if (_changeHeroButtonPressed) {
-				hero.ChangeHero();
-			}
-			DeactivateTriggerButtons();
 			return;
 		}
 
-		if (_crouchButtonPressed) {
+		if (GameInput.crouch) {
 			hero.Crouch ();
 		} else {
 			hero.StandUp();
 		}
 		
-		if (_carryButtonPressed) {
+		if (GameInput.carry) {
 			hero.Carry ();
 		} else {
 			hero.StopCarry();
 		}
 
-		if (_changeHeroButtonPressed) {
-			hero.ChangeHero();
-			SoundManager.Instance.SendMessage("PlaySFXSwap");
-		}
+        if (GameInput.jump)
+        {
+            hero.Jump ();
+        }            
 
-		if (_jumpButtonPressed) {
-			hero.Jump ();
-		}
-
-		if (_actionButtonPressed) {
+		if (GameInput.action) {
 			hero.Action();
 		}
 
-		if (Mathf.Abs (_moveButtonSpeed) > HeroControl.MOVE_THRESHOLD) {
-			hero.Move (_moveButtonSpeed);
+		if (Mathf.Abs (GameInput.horizontalAxis) > HeroControl.MOVE_THRESHOLD) {
+			hero.Move (GameInput.horizontalAxis);
 		} else {
 			hero.Move (0.0f);
 		}
+		if (Mathf.Abs (GameInput.verticalAxis) > HeroControl.MOVE_THRESHOLD) {
+			hero.VerticalMove (GameInput.verticalAxis);
+		} else {
+			hero.VerticalMove (0.0f);
+		}
 
-		DeactivateTriggerButtons();
+        if (GameInput.verticalAxis != 0)
+        {
+            hero.CarryBox();
+        }
+
 	}
 
-	private void DeactivateTriggerButtons(){
-		
-		_changeHeroButtonPressed = false;
-		_jumpButtonPressed = false;
-		_actionButtonPressed = false;
-	}
 }

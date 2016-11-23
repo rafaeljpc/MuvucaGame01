@@ -1,14 +1,12 @@
 ﻿using UnityEngine;
 using System.Collections;
 
-public class Lever : MonoBehaviour
+public class Lever : ElementActivator, IHeroActionable
 {
     [SerializeField]
-    private ActionableElement actionableObject;
+    private bool isTimeBased = false;
     [SerializeField]
-    private bool isTimeBased;
-    [SerializeField]
-    private float leverDelay;
+    private float leverDelay = 0f;
     private float timer;
     private bool isActive;
 
@@ -43,9 +41,9 @@ public class Lever : MonoBehaviour
         timer = 0f;
         isActive = !isActive;
         if (isActive)
-            actionableObject.SendMessage("Activate");
-        else
-            actionableObject.SendMessage("Deactivate");
+			ActivateAll ();
+		else
+			DeactivateAll ();
 
         Swap();
     }
@@ -56,4 +54,9 @@ public class Lever : MonoBehaviour
 		deactiveRenderer.gameObject.SetActive (!isActive);
 
     }
+
+	public void OnHeroActivate ()
+	{
+		ChangeState ();
+	}
 }

@@ -8,6 +8,7 @@ public class SoundManager : MonoBehaviour {
     {
         get
         {
+            Debug.AssertFormat(instance != null, "Instance of SoundManager is not initialized");
             return instance;
         }
     }
@@ -41,7 +42,7 @@ public class SoundManager : MonoBehaviour {
 
     private AudioSource source;
     private AudioClip music;
-    private AudioClip sfxSwap, sfxWater, sfxOpenGate, sfxCloseGate, sfxJump, sfxReset;
+    private AudioClip sfxSwap, sfxWater, sfxOpenGate, sfxCloseGate, sfxJump, sfxReset,sfxBounceBall;
 
 	void Awake () {
         instance = this;
@@ -65,7 +66,8 @@ public class SoundManager : MonoBehaviour {
         sfxReset = Resources.Load<AudioClip>(sfxPath + "reset");
         sfxSwap = Resources.Load<AudioClip>(sfxPath + "swap");
         sfxWater = Resources.Load<AudioClip>(sfxPath + "water");
-	}
+        sfxBounceBall = Resources.Load<AudioClip>(sfxPath + "bounceBall");
+    }
 
     private void PlayMusic()
     {
@@ -110,4 +112,9 @@ public class SoundManager : MonoBehaviour {
     {
         source.PlayOneShot(sfxReset, sfxVolume);
     }
+    private void PlaySFXBounceBall()
+    {
+        source.PlayOneShot(sfxBounceBall, sfxVolume);
+    }
+
 }

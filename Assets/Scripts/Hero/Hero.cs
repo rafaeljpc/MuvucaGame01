@@ -1,131 +1,321 @@
 ﻿using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
 using System;
 
-public abstract class Hero : MonoBehaviour {
+public abstract class Hero : Controllable
+{
+	private static int _FACING_LEFT = -1;
+	private static int _FACING_RIGHT = 1;
 
-	[SerializeField] private float maxWalkingSpeed = 5f;
-	[SerializeField] private float walkMotorTorque = 40f;
-	[SerializeField] private float horizontalFlyingForce = 0.5f;
-	[SerializeField] private float jumpHeight = 1f;
-	[SerializeField] private LayerMask whatIsGround;
-	[SerializeField] private LayerMask heroPlatformMask;
-	[SerializeField] private LayerMask mapInteractiveObjectsMask;
-	[SerializeField] private Collider2D headCollider = null;
-	[SerializeField] private Collider2D heroPlatform = null;
-	[SerializeField] private Collider2D bodyCollider = null;
-	[SerializeField] private HingeJoint2D walkMotor = null;
-	[SerializeField] private Collider2D footCollider = null;
+	[SerializeField]
+	private float maxWalkingSpeed = 5f;
+	[SerializeField]
+	private float walkMotorTorque = 40f;
+	[SerializeField]
+	private float maxClimbingSpeed = 5f;
+	[SerializeField]
+	private float horizontalFlyingForce = 0.5f;
+	[SerializeField]
+	private float jumpHeight = 1f;
+	[SerializeField]
+	private float offsetCarryObjHero = 0.7f;
 
+	[SerializeField]
+	private LayerMask whatIsGround;
+	[SerializeField]
+	private LayerMask heroPlatformMask;
+	[SerializeField]
+	private LayerMask mapInteractiveObjectsMask;
+	[SerializeField]
+	private Collider2D headCollider = null;
+	[SerializeField]
+	private Collider2D heroPlatform = null;
+	[SerializeField]
+	private Collider2D bodyCollider = null;
+	[SerializeField]
+	private HingeJoint2D walkMotor = null;
+	[SerializeField]
+	private Collider2D footCollider = null;
+	[SerializeField]
+	private BoxCollider2D interactCollider = null;
+	[SerializeField]
+	private Collider2D groundTrigger = null;
+
+	private HeroInteractor heroInterac;
 	private float motorMaxAngularSpeed = 0f;
-	private bool m_FacingRight = true;
+	private int facingDirection=_FACING_RIGHT;
 	private Rigidbody2D rigidBody2D;
 	private double jumpForce;
-	private Animator animator;
+	public Animator animator;
+	private bool isClimbing = false;
+	private float gravityOriginal;
+	private bool Carrying = false;
+	private bool Crouched = false;
+	public bool CarryingByAction = false;
+	private GameObject CarriedObject;
+    private Collider2D[] colliders;
 
-
-	protected bool m_isActive = false;
-	public bool IsActive{
-		get { return m_isActive; }
-		protected set { m_isActive = value; }
-	}
+    public bool isHoldingBox = false;
 
 	private bool m_onAir = false;
-	public bool OnAir{
+
+	public bool OnAir {
 		get { return m_onAir; }
 	}
 
+	public abstract bool IsStrong ();
 
-	protected virtual void Awake(){
+	protected virtual void Awake ()
+	{
+		heroInterac = GetComponentInChildren<HeroInteractor> ();
 		rigidBody2D = GetComponent<Rigidbody2D> ();
 
 		//get the animator
 		animator = GetComponentInChildren<Animator> ();
 
+		gravityOriginal = rigidBody2D.gravityScale;
+
 		CalculateJumpForce ();
 		CalculateWalkingMotorAngularSpeed ();
+        colliders = GetComponentsInChildren<Collider2D>();
 	}
 
-	void FixedUpdate(){
+    public override void OnFocusOut()
+    {
+        // In case hero loses focus, disable animations that only
+        // make sense when heroes are focused
+        StopPush();
+        StopWalk();
+        StandUp();
+    }
 
-	}
-
-	private bool isGrounded() {
-		//TODO better method to check if grounded
-		//old way:
-		//bool grounded = Physics2D.OverlapCircle (transform.position, 0.2f, whatIsGround.value | heroPlatformMask.value | mapInteractiveObjectsMask.value);
-		//new way:
-		bool grounded = footCollider.IsTouchingLayers (whatIsGround.value | heroPlatformMask.value | mapInteractiveObjectsMask.value);
+	public bool isGrounded ()
+	{
+		bool grounded = footCollider.IsTouchingLayers (whatIsGround.value | heroPlatformMask.value | mapInteractiveObjectsMask.value)
+			|| groundTrigger.IsTouchingLayers(whatIsGround.value | heroPlatformMask.value | mapInteractiveObjectsMask.value);
 		return grounded;
 	}
 
-	public void Move(float speed) {
+	public bool isPushingSomething ()
+	{
+		return bodyCollider.IsTouchingLayers (mapInteractiveObjectsMask.value) && heroInterac.carriableObject != null;
+	}
+
+	public void Move (float speed)
+	{
 		bool grounded = isGrounded ();
+		if (isClimbing)
+			isClimbing = (heroInterac.ladder != null && heroInterac.ladder.GetComponent<ILadder>()!=null && !grounded);
+
 		if (grounded) {
 			animator.SetBool ("jumpOnAir", false);
 			if (speed == 0.0f) {
 				animator.SetBool ("walk", false);
 				StopWalk ();
-			}
-			else {
+                StopPush();
+
+				if (Carrying)
+                {
+                    animator.SetBool("pushStandingStill", false);
+					animator.SetBool ("carry", true);
+                }
+
+			} else {
+				if (Carrying)
+                {
+                    animator.SetBool("pushStandingStill", false);
+                    animator.SetBool ("carry", true);   
+                }
+                else if (isHoldingBox)
+                {
+                    if (speed != 0)
+                    {
+                        Push();
+                    }
+                    else
+                    {
+                        StopPush();
+                    }
+                }
+                else
+                {
+				    if (isPushingSomething ())
+                        Push ();
+                    else
+                        StopPush();
+                }
+
 				animator.SetBool ("walk", true);
 				ChangeMotorSpeed (motorMaxAngularSpeed * speed);
 			}
 		} else {
-			if (rigidBody2D.velocity.x * Mathf.Sign(speed) < maxWalkingSpeed)
+			if (rigidBody2D.velocity.x * Mathf.Sign (speed) < maxWalkingSpeed)
 				rigidBody2D.AddForce (new Vector2 (speed * horizontalFlyingForce, 0), ForceMode2D.Impulse);
-			animator.SetBool ("jumpOnAir", true);
+			if (Carrying)
+				animator.SetBool ("carry", true);
+			else
+				StopPush();
+			if (isClimbing){
+				if (speed != 0.0f) {
+					int d = speed>0?1:-1;
+					isClimbing = false;
+					animator.SetBool ("jumpOnAir", true);
+				}
+			}
+			else
+				animator.SetBool ("jumpOnAir", true);
+
 		}
-		flipAnimation(speed);
+
+        if (!isHoldingBox)
+        {
+            flipAnimation (speed);
+        }
 	}
 
-	public void Jump() {
+	public void StopWalk ()
+	{
+		animator.SetBool ("walk", false);
+		//This command + changing Linear Drag to 1, prevents the hero slide after the jump
+		rigidBody2D.velocity = new Vector2 (0, rigidBody2D.velocity.y);
+		if (Carrying) {
+			Rigidbody2D rbCO= CarriedObject.GetComponent<Rigidbody2D> ();
+			rbCO.velocity = new Vector2 (0, rbCO.velocity.y);
+		}
+		ChangeMotorSpeed (0f);
+	}
+
+	public void VerticalMove(float speed)
+	{
+		bool grounded = isGrounded ();
+
+		if (isClimbing)
+			isClimbing = (heroInterac.ladder != null && heroInterac.ladder.GetComponent<ILadder>()!=null && !grounded);
+		else
+			isClimbing = (heroInterac.ladder != null && heroInterac.ladder.GetComponent<ILadder>()!=null && !grounded && speed != 0f && !Carrying);
+
+		if (isClimbing){
+			GravityScale = 0f;
+			Transform tGO = heroInterac.ladder.transform;
+
+			transform.position = new Vector2 (tGO.position.x, transform.position.y);
+			rigidBody2D.velocity = new Vector2 (0, -speed * maxClimbingSpeed);
+			// The code comment bellow is to be undone when the animator animating climb and stop on ladder
+			/*
+              if (speed ==0f){
+              animator.SetBool ("climb", false);
+              animator.SetBool ("stopclimb", true);
+              }
+              else{
+              animator.SetBool ("stopclimb", false);
+              animator.SetBool ("climb", true);
+              }
+			*/
+		}
+		else{
+			GravityScale = gravityOriginal;
+			// The code comment bellow is to be undone when the animator animating climb and stop on ladder
+			/*
+              animator.SetBool ("climb", false);
+              animator.SetBool ("stopclimb", false);
+			*/
+		}
+
+	}
+
+    public void CarryBox()
+    {
+        if (isHoldingBox)
+        {
+            Carry();
+            CarryingByAction = true;
+        }        
+    }
+
+	public void Jump ()
+	{
+        if (!isHoldingBox)
+        {
+            Jump (1);
+        }
+
+	}
+
+	/// <summary>
+	/// Makes the Hero jump to his/her maximum height multiplied by a factor.
+	/// </summary>
+	/// <param name="multiplier">Maximum height factor.</param>
+	public void Jump (float multiplier)
+	{
 		//JUMP, IF GROUDED OR ON OTHER HERO PLATFORM
 		bool grounded = isGrounded ();
+
 		if (grounded) {
-			animator.SetTrigger("jumpStart");
+			animator.SetTrigger ("jumpOnAir");
+
 			foreach (Rigidbody2D rg2d in transform.GetComponentsInChildren<Rigidbody2D>())
-				rg2d.velocity = new Vector2(rigidBody2D.velocity.x, 0);
-			rigidBody2D.AddForce (new Vector2 (0f, (float)jumpForce), ForceMode2D.Impulse);
-			SoundManager.Instance.SendMessage("PlaySFXJump");
+				rg2d.velocity = new Vector2 (rigidBody2D.velocity.x, 0);
+
+			rigidBody2D.AddForce (new Vector2 (0f, (float)jumpForce) * Mathf.Sqrt(multiplier), ForceMode2D.Impulse);
+			SoundManager.Instance.SendMessage ("PlaySFXJump");
 		}
 	}
 
-	public void Crouch() {
-		heroPlatform.offset = headCollider.offset -  new Vector2(0, heroPlatform.bounds.size.y);
+	public void Crouch ()
+	{
+		heroPlatform.offset = headCollider.offset - new Vector2 (0, heroPlatform.bounds.size.y);
+		Crouched = true;
 		//Crouch Animation
 		animator.SetBool ("crouch", true);
 	}
 
-	public void StandUp() {
+	public void StandUp ()
+	{
 		if (!Physics2D.OverlapArea (headCollider.bounds.min, headCollider.bounds.max, whatIsGround.value)) { // Do not stand up inside a short area
 			heroPlatform.offset = headCollider.offset;
+			Crouched = false;
 			//Crouch Animation
 			animator.SetBool ("crouch", false);
 		}
 	}
 
-	public void Push() {
+	public void Push ()
+	{
 		animator.SetBool ("push", true);
 	}
 
-	public void StopPush() {
+	public void StopPush ()
+	{
 		animator.SetBool ("push", false);
 	}
 
-	public void Carry() {
-		animator.SetBool ("carry", true);
+	public void Carry ()
+	{
+		if (!Carrying) {
+			CarryObject();
+			CarryingByAction = false;
+		}
+		else
+        {
+			animator.SetBool ("carry", true);
+        }
 	}
 
-	public void StopCarry() {
+	public void StopCarry ()
+	{
+		if (Carrying && !CarryingByAction) {
+			ReleaseObject();
+		}
 		animator.SetBool ("carry", false);
 	}
 
-	private void flipAnimation(float horizontalMove)	{
+	private void flipAnimation (float horizontalMove)
+	{
 		//Flip the animation
-		if ((horizontalMove > 0 && !m_FacingRight) || (horizontalMove < 0 && m_FacingRight)) {
+		if ((horizontalMove > 0 && facingDirection==_FACING_LEFT) || (horizontalMove < 0 && facingDirection==_FACING_RIGHT)) {
 			// Switch the way the player is labelled as facing.
-			m_FacingRight = !m_FacingRight;
+			facingDirection*=-1;
 			// Multiply the player's x local scale by -1.
 			Transform rendererTransform = transform.Find ("Renderer").transform;
 			Vector3 theScale = rendererTransform.localScale;
@@ -134,11 +324,12 @@ public abstract class Hero : MonoBehaviour {
 		}
 	}
 
-	private void CalculateJumpForce(){
+	private void CalculateJumpForce ()
+	{
 		//Impulse to Jump that height
 		//more info look at http://hyperphysics.phy-astr.gsu.edu/hbase/impulse.html and reverse http://hyperphysics.phy-astr.gsu.edu/hbase/flobj.html#c2
 		double totalMass = 0;
-		//get the total mass from the hero
+		//get the total mass from the he
 		foreach (Rigidbody2D rg2d in transform.GetComponentsInChildren<Rigidbody2D>())
 			totalMass += rg2d.mass;
 
@@ -148,71 +339,95 @@ public abstract class Hero : MonoBehaviour {
 		jumpForce *= 1.03;
 	}
 
-	private void CalculateWalkingMotorAngularSpeed(){
-		float footRadius = walkMotor.GetComponent<CircleCollider2D>().radius;
+	private void CalculateWalkingMotorAngularSpeed ()
+	{
+		float footRadius = walkMotor.GetComponent<CircleCollider2D> ().radius;
 
-		motorMaxAngularSpeed = Mathf.Rad2Deg * maxWalkingSpeed/footRadius;
+		motorMaxAngularSpeed = Mathf.Rad2Deg * maxWalkingSpeed / footRadius;
 
 	}
-
-	public void ChangeHero(){
-		m_isActive = !m_isActive;
-	}
-
-	public void StopWalk(){
-		animator.SetBool ("walk", false);
-		ChangeMotorSpeed (0f);
-	}
-
-	private void ChangeMotorSpeed(float speed){
-		JointMotor2D tMotor = walkMotor.motor; 
+		
+	private void ChangeMotorSpeed (float speed)
+	{
+		JointMotor2D tMotor = walkMotor.motor;
 		tMotor.motorSpeed = speed;
 		tMotor.maxMotorTorque = walkMotorTorque;
 		walkMotor.motor = tMotor;
 	}
 
-	public void Action() {
+    public void HoldObject()
+    {
+        if (!isHoldingBox)
+        {
+            Bounds bounds = GetComponentInChildren<Renderer>().bounds;
+            GameObject Carried = heroInterac.carriableObject;
+
+            // Match the box postion and the hero facing direction: if
+            // hero is not facing the box, he will not pick it up
+            if (((Carried.transform.position.x > transform.position.x) && facingDirection == 1) ||
+                ((Carried.transform.position.x < transform.position.x) && facingDirection == -1))
+            {
+                // Transform to avoid conflict with hero
+                // position. Also ensure that the box will be at the
+                // correct position on holding
+                Carried.transform.position = new Vector2 (transform.position.x + facingDirection*bounds.extents.x, 
+                                                          transform.position.y);
+                Carried.transform.rotation = new Quaternion (0, 0, 0, Carried.transform.localRotation.w);
+
+                SliderJoint2D sliderJoint = GetComponent<SliderJoint2D> ();
+                sliderJoint.connectedBody = Carried.GetComponent<Rigidbody2D>();
+                Bounds connectedBounds = sliderJoint.connectedBody.GetComponentInChildren<Renderer>().bounds;
+
+                // Offset due to Sprite of the heroes. Difference between
+                // the bound of interact collider and the animated pixels.
+                float spriteOffset = 0.07f;
+
+                // Joint must be positioned right in front of hero
+                // considering his current facing direction
+                sliderJoint.connectedAnchor = new Vector2(-facingDirection*(interactCollider.size.x/2f+connectedBounds.extents.x-spriteOffset),
+                                                          0);
+                sliderJoint.enabled = true;
+
+                isHoldingBox = true;
+                animator.SetBool("pushStandingStill", true);                
+            }
+        }
+
+        else
+        {
+            SliderJoint2D sliderJoint = GetComponent<SliderJoint2D>();
+            sliderJoint.connectedBody = null;
+            sliderJoint.enabled = false;
+            isHoldingBox = false;
+            animator.SetBool("pushStandingStill", false);
+            StopPush();
+        }
+    }
+
+	public void Action ()
+	{
 		this.DoAction ();
 	}
 
-    private void DoAction()
-    {
-        Renderer r = GetComponentInChildren<Renderer>();
-        Vector2 a = new Vector2(transform.position.x - r.bounds.extents.x, transform.position.y - r.bounds.extents.x);
-        Vector2 b = new Vector2(transform.position.x + r.bounds.extents.x, transform.position.y + r.bounds.extents.x);
-        Collider2D coll = Physics2D.OverlapArea(a, b, 1 << 11);
-
-        if (coll != null)
-        {
-            switch (coll.tag)
-            {
-                case "Lever":
-                    {
-
-                        coll.SendMessage("ChangeState");
-                        break;
-                    }
-                default:
-                    {
-                        break;
-                    }
-            }
-        }
-    }
-
-    private void TouchedForceField()
-    {
-        float speed = 2;
-
-        if (m_FacingRight)
-        {
-            rigidBody2D.AddForce(new Vector2(maxWalkingSpeed * -speed, 0), ForceMode2D.Impulse);
-        }
-        else
-        {
-            rigidBody2D.AddForce(new Vector2(maxWalkingSpeed * speed, 0), ForceMode2D.Impulse);
-        }
-    }
+	private void DoAction ()
+	{
+		if (!Carrying) {
+			if (!isClimbing) {
+				if (heroInterac.carriableObject != null) {
+                    HoldObject();
+				}
+				else if (heroInterac.actionableObject != null) {
+					IHeroActionable iHeroActionable = heroInterac.actionableObject.GetComponent<IHeroActionable> ();
+					if (iHeroActionable != null) {
+						iHeroActionable.OnHeroActivate ();
+					}
+				} 
+			}
+		}
+		else{
+			ReleaseObject();
+		}
+	}
 
 	public float JumpHeight {
 		get {
@@ -230,7 +445,7 @@ public abstract class Hero : MonoBehaviour {
 		}
 		set {
 			walkMotorTorque = value;
-			CalculateWalkingMotorAngularSpeed();
+			CalculateWalkingMotorAngularSpeed ();
 		}
 	}
 
@@ -240,7 +455,7 @@ public abstract class Hero : MonoBehaviour {
 		}
 		set {
 			maxWalkingSpeed = value;
-			CalculateWalkingMotorAngularSpeed();
+			CalculateWalkingMotorAngularSpeed ();
 		}
 	}
 
@@ -253,7 +468,7 @@ public abstract class Hero : MonoBehaviour {
 		}
 	}
 
-	public float GravityScale{
+	public float GravityScale {
 		get {
 			return rigidBody2D.gravityScale;
 		}
@@ -261,11 +476,73 @@ public abstract class Hero : MonoBehaviour {
 		set {
 			foreach (Rigidbody2D rg2d in transform.GetComponentsInChildren<Rigidbody2D>())
 				rg2d.gravityScale = value;
+			CalculateJumpForce ();
+		}
 
-			CalculateJumpForce();
+	}
+	private void CarryObject(){
+		Carriable carriable = heroInterac.carriableObject.GetComponent<Carriable> ();
+		bool objIsInFront = heroInterac.carriableObject.transform.position.x*facingDirection > transform.position.x*facingDirection;
+		float fator = carriable.isHeavy()?1.5f:1f;
+
+		if (carriable != null && !carriable.isBeingCarried && objIsInFront && (!carriable.isHeavy () || this.IsStrong ())) {
+			Vector2 ls = heroInterac.transform.localScale;
+			Vector2 a = new Vector2(transform.position.x - ls.x/2, transform.position.y + transform.localScale.y + ls.y + offsetCarryObjHero*fator - ls.y/2);
+			Vector2 b = new Vector2(transform.position.x + ls.x/2, transform.position.y + transform.localScale.y + ls.y + offsetCarryObjHero*fator + ls.y/2);
+			Collider2D coll = Physics2D.OverlapArea(a, b);
+			if (coll == null) {
+				Carrying = true;
+				CarriedObject = heroInterac.carriableObject;
+				SliderJoint2D sliderJoint = GetComponent<SliderJoint2D> ();
+				CarriedObject.transform.rotation = new Quaternion (0, 0, 0, CarriedObject.transform.localRotation.w);
+				CarriedObject.transform.position = new Vector2 (transform.position.x, transform.position.y + transform.localScale.y + CarriedObject.transform.localScale.y + offsetCarryObjHero * fator);
+				sliderJoint.connectedBody = CarriedObject.GetComponent<Rigidbody2D> ();
+				sliderJoint.enabled = true;
+                sliderJoint.connectedAnchor = Vector2.zero;
+				carriable.isBeingCarried = true;
+				StopPush ();
+				animator.SetBool ("carry", true);
+                animator.SetBool("pushStandingStill", false);
+
+                isHoldingBox = false;
+			}
 		}
 
 	}
 
+	public void ReleaseObject(){
+		Carriable carriable = CarriedObject.GetComponent<Carriable> ();
+		float fator = (carriable.isHeavy()?1.5f:1);
+		SliderJoint2D sliderJoint = GetComponent<SliderJoint2D>();
+		sliderJoint.connectedBody = null;
+		sliderJoint.enabled = false;
+		if (Crouched) {
+			CarriedObject.GetComponent<Rigidbody2D> ().velocity = new Vector2 (0, 0);
+			CarriedObject.transform.rotation = new Quaternion(0, 0, 0, CarriedObject.transform.localRotation.w);
+			CarriedObject.transform.position = new Vector2 (transform.position.x + facingDirection * transform.localScale.x/2 + facingDirection * CarriedObject.transform.localScale.x/2, transform.position.y - transform.localScale.y + CarriedObject.transform.localScale.y + offsetCarryObjHero*fator);
+		}
+		else
+		{
+			CarriedObject.GetComponent<Rigidbody2D> ().velocity = new Vector2 (rigidBody2D.velocity.x, 0);
+			CarriedObject.GetComponent<Rigidbody2D> ().AddForce (new Vector2 (fator * facingDirection * 5f, fator * 1f), ForceMode2D.Impulse);
+		}
+		Carrying = false;
+		CarriedObject = null;
+		carriable.isBeingCarried = false;
+		animator.SetBool ("carry", false);
 
+        isHoldingBox = false;
+	}
+
+    public bool IsTouchingAreaTrigger()
+    {
+        foreach (Collider2D collider in colliders)
+        {
+            if (collider.IsTouchingLayers(LayerMask.GetMask("Triggers")))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 }
